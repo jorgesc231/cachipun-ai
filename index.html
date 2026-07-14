@@ -238,13 +238,37 @@
 
         // 3. Eventos de los botones de la Interfaz
         document.getElementById('btn-crear').addEventListener('click', () => {
+
+            // Validamos que el servidor de Fly.io esté despierto y conectado
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                document.getElementById('status').innerText = "Espera, el servidor se está despertando...";
+                return;
+            }
+            // Validamos que la cámara (PeerJS) tenga su ID listo
+            if (!miPeerID) {
+                document.getElementById('status').innerText = "Cargando tu cámara, espera...";
+                return;
+            }
+    
+           
             // Le decimos a Go que cree una sala y mapee nuestro PeerID largo
             socket.send(JSON.stringify({ accion: "crear", valor: miPeerID }));
         });
 
         document.getElementById('btn-unirse').addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                    document.getElementById('status').innerText = "Espera, conectando al servidor...";
+                    return;
+            }
+            
             // Le mandamos a Go el código de 5 letras ("A7X9K")
             const codigoIngresado = document.getElementById('input-sala').value.toUpperCase();
+
+            if (codigoIngresado.length !== 5) {
+                    alert("El código de la sala debe tener 5 caracteres.");
+                    return;
+            }
+            
             socket.send(JSON.stringify({ accion: "unirse", valor: codigoIngresado }));
         });
 
