@@ -36,12 +36,36 @@
             display: flex;
             gap: 20px;
             justify-content: center;
+            align-items: flex-start;
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
         }
         .video-box {
             border: 2px solid #4CAF50;
-            width: 320px;
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
         }
         .video-box video { width: 100%; display: block; transform: scaleX(-1); }
+
+        /* Diseño del panel de controles integrado */
+        #panel-sala { padding: 15px; border-bottom: 2px solid #333; background: #121212; }
+        #input-sala { text-transform: uppercase; font-size: 16px; text-align: center; width: 90px; font-family: monospace; }
+        
+        /* Magia para Móviles */
+        @media (max-width: 768px) {
+            .camaras-container {
+                flex-direction: column; /* Apila las cámaras verticalmente */
+                padding: 10px;
+                box-sizing: border-box;
+            }
+            .oponente-box { order: 1; } /* Fuerza al oponente a renderizarse ARRIBA */
+            .jugador-box { order: 2; }  /* Fuerza tu cámara a renderizarse ABAJO */
+        }
+        
         .controles-conexion { margin-top: 20px; background: #1e1e1e; padding: 15px; }
 
         #ui-layer { text-align: center; }
@@ -66,28 +90,29 @@
 
     <div id="ui-layer">
         <h1>Piedra, Papel o Tijera</h1>
+        
         <div class="camaras-container">
-            <div class="video-box">
-                <p>Tú</p>
-                <video id="webcam" autoplay playsinline muted></video>
-            </div>
-            
-            <div class="video-box">
-                <p>Oponente</p>
+            <div class="video-box oponente-box">
+                
+                <div id="panel-sala">
+                    <p style="margin-top: 0;">Tu Código: <strong id="mi-codigo" style="color:#4CAF50; font-size: 1.3em;">Creando...</strong></p>
+                    <p style="margin: 8px 0; font-size: 0.9em; color: #aaa;">- O ÚNETE A UN AMIGO -</p>
+                    <div style="display: flex; gap: 5px; justify-content: center;">
+                        <input type="text" id="input-sala" placeholder="CÓDIGO" maxlength="5">
+                        <button id="btn-unirse">Unirse</button>
+                    </div>
+                </div>
+
+                <p class="etiqueta-video">Oponente</p>
                 <video id="remote-webcam" autoplay playsinline></video>
+            </div>
+
+            <div class="video-box jugador-box">
+                <p class="etiqueta-video">Tú</p>
+                <video id="webcam" autoplay playsinline muted></video>
             </div>
         </div>
 
-        <div class="controles-conexion">
-            <p id="status" style="color: #ffeb3b; margin-bottom: 15px; font-size: 18px;">Cargando sistema...</p>
-            
-            <div style="display: flex; gap: 10px; justify-content: center; align-items: center;">
-                <button id="btn-crear">Crear Sala</button>
-                <span style="margin: 0 15px;"> O </span>
-                <input type="text" id="input-sala" placeholder="EJ: M4T9X" maxlength="5" style="text-transform: uppercase; font-size: 18px; text-align: center; width: 120px;">
-                <button id="btn-unirse">Unirse a Sala</button>
-            </div>
-        </div>
         <div id="human-status">Presencia Humana: Evaluando...</div>
         <div id="gesture-result">Gesto: Ninguno</div>
     </div>
@@ -113,8 +138,18 @@
         // Variables de estado del juego
         let isPlaying = false;
         let isPersonPresent = false;
-        let socket;
 
+        let peerListo = false;
+        let wsListo = false;
+
+        // Función centralizada para autómaticamente crear la sala
+        function intentarAutoCrearSala() {
+            if (peerListo && wsListo && miPeerID) {
+                socket.send(JSON.stringify({ accion: "crear", valor: miPeerID }));
+            }
+        }
+        
+        let socket;
         let peer;
         let miPeerID;
         let miStreamLocal;
@@ -175,6 +210,8 @@
             // Cuando el servidor nos asigna una "matrícula" única
             peer.on('open', (id) => {
                 miPeerID = id; // Guardamos el ID largo ("abc-123-xyz")
+                peerListo = true;
+                intentarAutoCrearSala(); // Avisa que PeerJS está listo
                 conectarWebSocket(); // Ahora que tenemos ID, conectamos al servidor Go
             });
 
@@ -199,7 +236,9 @@
             
             // Este evento se dispara cuando la conexión se abre exitosamente
             socket.onopen = () => {
-                document.getElementById('status').innerText = "Sistema en línea. ¡Listo para jugar!";
+                document.getElementById('status').innerText = "Sistema en línea.";
+                wsListo = true;
+                intentarAutoCrearSala(); // Avisa que Go (Fly.io) está listo
             };
 
             socket.onmessage = (evento) => {
@@ -207,7 +246,7 @@
 
                 if (mensaje.accion === "sala_creada") {
                     // El servidor Go nos dio nuestro código corto de 5 letras
-                    document.getElementById('status').innerText = "Comparte este código: " + mensaje.valor;
+                    document.getElementById('mi-codigo').innerText = mensaje.valor;
                 } 
                 else if (mensaje.accion === "iniciar_llamada") {
                     // Somos el Jugador 2, el servidor Go nos dio el ID largo del Jugador 1
@@ -216,6 +255,12 @@
                 }
                 else if (mensaje.accion === "estado") {
                     document.getElementById('status').innerText = mensaje.valor;
+
+                    // Ocultar los controles cuando alguien se conecta
+                    if (mensaje.valor.includes("¡Oponente conectado!")) {
+                        document.getElementById('panel-sala').style.display = "none";
+                    }
+                    
                     // Si el mensaje incluye "¡Haz tu gesto!", disparas la captura de MediaPipe
                     if (mensaje.valor.includes("¡Haz tu gesto!")) {
                         capturarYEnviarGesto();
@@ -226,25 +271,6 @@
                 }
             };
         }
-
-        // 3. Eventos de los botones de la Interfaz
-        document.getElementById('btn-crear').addEventListener('click', () => {
-
-            // Validamos que el servidor de Fly.io esté despierto y conectado
-            if (!socket || socket.readyState !== WebSocket.OPEN) {
-                document.getElementById('status').innerText = "Espera, el servidor se está despertando...";
-                return;
-            }
-            // Validamos que la cámara (PeerJS) tenga su ID listo
-            if (!miPeerID) {
-                document.getElementById('status').innerText = "Cargando tu cámara, espera...";
-                return;
-            }
-    
-           
-            // Le decimos a Go que cree una sala y mapee nuestro PeerID largo
-            socket.send(JSON.stringify({ accion: "crear", valor: miPeerID }));
-        });
 
         document.getElementById('btn-unirse').addEventListener('click', () => {
             if (!socket || socket.readyState !== WebSocket.OPEN) {
