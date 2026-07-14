@@ -42,28 +42,79 @@
             margin: 0 auto;
         }
         .video-box {
+            position: relative; 
             border: 2px solid #4CAF50;
             width: 100%;
             max-width: 400px;
-            display: flex;
-            flex-direction: column;
-            background: #1e1e1e;
+            aspect-ratio: 4/3; /* Evita que la caja colapse antes de cargar el video */
+            background: #121212;
+            overflow: hidden;
+            border-radius: 8px;
         }
-        .video-box video { width: 100%; display: block; transform: scaleX(-1); }
+        .video-box video { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+            display: block; 
+            transform: scaleX(-1);
+        }
+
+        /* El protector que tapa la pantalla del oponente por completo */
+        #overlay-conexion { 
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1e1e1e; /* Color sólido para tapar el fondo */
+            display: flex; 
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10; /* Por encima del video y de la etiqueta */
+            padding: 20px;
+            box-sizing: border-box;
+            text-align: center;
+            transition: opacity 0.5s ease; /* Transición suave al desaparecer */
+        }
+
+        .etiqueta-video { 
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            margin: 0;
+            font-weight: bold; 
+            background: rgba(0, 0, 0, 0.6); 
+            padding: 5px; 
+            z-index: 5;
+            text-align: center;
+        }
 
         /* Diseño del panel de controles integrado */
         #panel-sala { padding: 15px; border-bottom: 2px solid #333; background: #121212; }
-        #input-sala { text-transform: uppercase; font-size: 16px; text-align: center; width: 90px; font-family: monospace; }
+        #input-sala { 
+            text-transform: uppercase; 
+            font-size: 16px; 
+            text-align: center; 
+            width: 100px; 
+            font-family: monospace; 
+            padding: 5px;
+            border: 1px solid #4CAF50;
+            background: #222;
+            color: #fff;
+        }
         
-        /* Magia para Móviles */
+        /* Adaptación para pantallas de teléfonos móviles */
         @media (max-width: 768px) {
             .camaras-container {
-                flex-direction: column; /* Apila las cámaras verticalmente */
+                flex-direction: column; 
                 padding: 10px;
                 box-sizing: border-box;
+                align-items: center;
             }
-            .oponente-box { order: 1; } /* Fuerza al oponente a renderizarse ARRIBA */
-            .jugador-box { order: 2; }  /* Fuerza tu cámara a renderizarse ABAJO */
+            .oponente-box { order: 1; } /* Oponente arriba en móviles */
+            .jugador-box { order: 2; }  /* Tu cámara abajo en móviles */
         }
         
         .controles-conexion { margin-top: 20px; background: #1e1e1e; padding: 15px; }
@@ -90,23 +141,27 @@
 
     <div id="ui-layer">
         <h1>Piedra, Papel o Tijera</h1>
+
+        <p id="status" style="color: #ffeb3b; margin-bottom: 15px; font-size: 18px;">Inicializando componentes...</p>
         
         <div class="camaras-container">
             <div class="video-box oponente-box">
                 
-                <div id="panel-sala">
-                    <p style="margin-top: 0;">Tu Código: <strong id="mi-codigo" style="color:#4CAF50; font-size: 1.3em;">Creando...</strong></p>
-                    <p style="margin: 8px 0; font-size: 0.9em; color: #aaa;">- O ÚNETE A UN AMIGO -</p>
+                <div id="overlay-conexion">
+                    <p style="margin-top: 0; font-size: 1.1em;">Código de tu Sala</p>
+                    <strong id="mi-codigo" style="color:#4CAF50; font-size: 2em; margin-bottom: 15px; font-family: monospace;">Iniciando...</strong>
+                    
+                    <p style="margin: 10px 0 5px 0; font-size: 0.9em; color: #aaa;">- O ÚNETE A TU OPONENTE -</p>
                     <div style="display: flex; gap: 5px; justify-content: center;">
                         <input type="text" id="input-sala" placeholder="CÓDIGO" maxlength="5">
                         <button id="btn-unirse">Unirse</button>
                     </div>
                 </div>
-
+        
                 <p class="etiqueta-video">Oponente</p>
                 <video id="remote-webcam" autoplay playsinline></video>
             </div>
-
+        
             <div class="video-box jugador-box">
                 <p class="etiqueta-video">Tú</p>
                 <video id="webcam" autoplay playsinline muted></video>
@@ -141,18 +196,31 @@
 
         let peerListo = false;
         let wsListo = false;
-
-        // Función centralizada para autómaticamente crear la sala
+        
+        // Función para intentar crear la sala automáticamente de forma segura
         function intentarAutoCrearSala() {
+            const textoCodigo = document.getElementById('mi-codigo');
+            
+            if (!peerListo) {
+                textoCodigo.innerText = "Cargando cámara...";
+                return;
+            }
+            if (!wsListo) {
+                textoCodigo.innerText = "Conectando servidor...";
+                return;
+            }
+            
+            // Si ambos componentes están listos, enviamos la solicitud al backend
             if (peerListo && wsListo && miPeerID) {
+                textoCodigo.innerText = "Generando código...";
                 socket.send(JSON.stringify({ accion: "crear", valor: miPeerID }));
             }
         }
         
         let socket;
         let peer;
-        let miPeerID;
-        let miStreamLocal;
+        let miPeerID = null;
+        let miStreamLocal = null;
         // Selecciona dinámicamente la caja que envuelve tu cámara local
         const videoContainer = document.getElementById('webcam').parentElement;
         const videoRemoto = document.getElementById('remote-webcam');
@@ -199,7 +267,8 @@
                 // Inicializar la conexión P2P una vez que tenemos cámara
                 iniciarPeerJS();
             } catch (err) {
-                statusText.innerText = "Error de cámara: " + err;
+                console.error("Error de cámara:", err);
+                document.getElementById('status').innerText = "Error: Permite el acceso a la cámara.";
             }
         }
 
@@ -223,6 +292,7 @@
                 // 2. Escuchamos para recibir el video del oponente
                 llamada.on('stream', (streamDelOponente) => {
                     document.getElementById('remote-webcam').srcObject = streamDelOponente;
+                    ocultarOverlayOponente(); // ¡Conexión establecida! Ocultamos el overlay
                 });
             });
         }
@@ -236,7 +306,7 @@
             
             // Este evento se dispara cuando la conexión se abre exitosamente
             socket.onopen = () => {
-                document.getElementById('status').innerText = "Sistema en línea.";
+                document.getElementById('status').innerText = "Servidor conectado. ¡Listo!";
                 wsListo = true;
                 intentarAutoCrearSala(); // Avisa que Go (Fly.io) está listo
             };
@@ -255,12 +325,7 @@
                 }
                 else if (mensaje.accion === "estado") {
                     document.getElementById('status').innerText = mensaje.valor;
-
-                    // Ocultar los controles cuando alguien se conecta
-                    if (mensaje.valor.includes("¡Oponente conectado!")) {
-                        document.getElementById('panel-sala').style.display = "none";
-                    }
-                    
+                  
                     // Si el mensaje incluye "¡Haz tu gesto!", disparas la captura de MediaPipe
                     if (mensaje.valor.includes("¡Haz tu gesto!")) {
                         capturarYEnviarGesto();
@@ -269,6 +334,12 @@
                 else if (mensaje.accion === "resultado") {
                     document.getElementById('status').innerText = mensaje.valor;
                 }
+            };
+
+            socket.onerror = (error) => {
+                console.error("Error en WebSocket:", error);
+                wsListo = false;
+                document.getElementById('mi-codigo').innerText = "Error de red";
             };
         }
 
@@ -294,7 +365,17 @@
             const llamada = peer.call(idLargo, miStreamLocal);
             llamada.on('stream', (streamDelOponente) => {
                 document.getElementById('remote-webcam').srcObject = streamDelOponente;
+                ocultarOverlayOponente();
             });
+        }
+
+        // Oculta el protector negro con una animación suave
+        function ocultarOverlayOponente() {
+            const overlay = document.getElementById('overlay-conexion');
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 500); // Coincide con la duración de la transición CSS
         }
 
         // 5. Enviar movimiento
