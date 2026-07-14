@@ -201,7 +201,15 @@
 
         // 2. Conexión con tu backend en Go
         function conectarWebSocket() {
+            // Avisamos que el servidor se está despertando
+            document.getElementById('status').innerText = "Conectando al servidor central...";
+                
             socket = new WebSocket("wss://cachipun-server.fly.dev/ws");
+            
+            // Este evento se dispara cuando la conexión se abre exitosamente
+            socket.onopen = () => {
+                document.getElementById('status').innerText = "Sistema en línea. ¡Listo para jugar!";
+            };
 
             socket.onmessage = (evento) => {
                 const mensaje = JSON.parse(evento.data);
