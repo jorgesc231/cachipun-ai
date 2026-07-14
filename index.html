@@ -133,8 +133,6 @@
         let miStreamLocal;
         const videoRemoto = document.getElementById('remote-webcam');
         const textoMiId = document.getElementById('mi-id');
-        const btnLlamar = document.getElementById('btn-llamar');
-
         // 2. Inicializar ambos modelos
         async function initializeAI() {
             const vision = await FilesetResolver.forVisionTasks(
@@ -259,18 +257,6 @@
                 socket.send(JSON.stringify({ accion: "mover", valor: gestoFinal }));
             }, 2000); // Darles 2 segundos para posar la mano
         }
-
-        // CUANDO NOSOTROS QUEREMOS LLAMAR A ALGUIEN:
-        btnLlamar.addEventListener('click', () => {
-            const idOponente = document.getElementById('input-oponente').value;
-            
-            // Llamamos pasando el ID que el usuario escribió y nuestro video
-            const llamada = peer.call(idOponente, miStreamLocal);
-            
-            llamada.on('stream', (streamDelOponente) => {
-                videoRemoto.srcObject = streamDelOponente;
-            });
-        });
 
         // 3. Bucle de predicción para Rostros y Gestos
         async function predictWebcam() {
