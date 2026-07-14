@@ -98,7 +98,6 @@
                 <button id="btn-unirse">Unirse a Sala</button>
             </div>
         </div>
-        <button id="btn-start" disabled>Buscar Partida</button>
         <div id="human-status">Presencia Humana: Evaluando...</div>
         <div id="gesture-result">Gesto: Ninguno</div>
     </div>
@@ -113,7 +112,6 @@
 
         const video = document.getElementById('webcam');
         const statusText = document.getElementById('status');
-        const btnStart = document.getElementById('btn-start');
         const gestureResult = document.getElementById('gesture-result');
         const humanStatus = document.getElementById('human-status');
         const videoContainer = document.getElementById('video-container');
@@ -203,7 +201,7 @@
 
         // 2. Conexión con tu backend en Go
         function conectarWebSocket() {
-            socket = new WebSocket("ws://localhost:8080/ws");
+            socket = new WebSocket("wss://cachipun-server.fly.dev/ws");
 
             socket.onmessage = (evento) => {
                 const mensaje = JSON.parse(evento.data);
@@ -272,12 +270,10 @@
                     humanStatus.innerText = "Presencia Humana: Detectada ✔️";
                     humanStatus.className = "";
                     videoContainer.classList.remove("no-person");
-                    if (!isPlaying && btnStart.innerText === "Buscar Partida") btnStart.disabled = false;
                 } else {
                     humanStatus.innerText = "Presencia Humana: No detectada ❌";
                     humanStatus.className = "alert";
                     videoContainer.classList.add("no-person");
-                    btnStart.disabled = true; // Bloquear inicio si no hay nadie
                 }
 
                 // --- DETECCIÓN DE GESTOS ---
@@ -302,63 +298,6 @@
             }
             window.requestAnimationFrame(predictWebcam);
         }
-
-        // 4. Lógica de conexión con el servidor Go
-        btnStart.addEventListener('click', () => {
-            if (!isPersonPresent) return; // Validación extra de seguridad
-
-            btnStart.disabled = true;
-            statusText.innerText = "Conectando al servidor...";
-
-            socket = new WebSocket("wss://cachipun-server.fly.dev/ws");
-
-            socket.onmessage = (evento) => {
-                const datos = JSON.parse(evento.data);
-
-                if (datos.type === "status") {
-                    statusText.innerText = datos.value;
-                    
-                    if (datos.value.includes("¡Haz tu gesto!")) {
-                        isPlaying = true;
-                        
-                        // Validar constantemente si la persona se va durante la cuenta
-                        const checkPersonInterval = setInterval(() => {
-                            if (!isPersonPresent) {
-                                statusText.innerText = "¡Abortado! Persona ausente.";
-                                socket.close();
-                                clearInterval(checkPersonInterval);
-                                isPlaying = false;
-                            }
-                        }, 100);
-
-                        setTimeout(() => {
-                            clearInterval(checkPersonInterval);
-                            if (!isPlaying) return; // Si se abortó, no enviar
-                            
-                            isPlaying = false;
-                            const textoGesto = gestureResult.innerText;
-                            let gestoFinal = "Desconocido";
-                            
-                            if(textoGesto.includes("Piedra")) gestoFinal = "Piedra";
-                            else if(textoGesto.includes("Papel")) gestoFinal = "Papel";
-                            else if(textoGesto.includes("Tijeras")) gestoFinal = "Tijeras";
-
-                            socket.send(JSON.stringify({ type: "move", value: gestoFinal }));
-                            statusText.innerText = "Gesto enviado. Esperando...";
-                        }, 2000);
-                    }
-                } else if (datos.type === "result") {
-                    statusText.innerText = datos.value;
-                    if (isPersonPresent) btnStart.disabled = false;
-                    btnStart.innerText = "Jugar de nuevo";
-                }
-            };
-
-            socket.onerror = () => {
-                statusText.innerText = "Error de conexión.";
-                if (isPersonPresent) btnStart.disabled = false;
-            };
-        });
 
         initializeAI();
     </script>
