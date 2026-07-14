@@ -114,7 +114,6 @@
         const statusText = document.getElementById('status');
         const gestureResult = document.getElementById('gesture-result');
         const humanStatus = document.getElementById('human-status');
-        const videoContainer = document.getElementById('video-container');
 
         let gestureRecognizer;
         let faceDetector;
@@ -269,11 +268,9 @@
                 if (isPersonPresent) {
                     humanStatus.innerText = "Presencia Humana: Detectada ✔️";
                     humanStatus.className = "";
-                    videoContainer.classList.remove("no-person");
                 } else {
                     humanStatus.innerText = "Presencia Humana: No detectada ❌";
                     humanStatus.className = "alert";
-                    videoContainer.classList.add("no-person");
                 }
 
                 // --- DETECCIÓN DE GESTOS ---
