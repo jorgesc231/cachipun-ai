@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-width=1.0">
-    <title>Piedra, Papel o Tijera - IA & Anti-Bot</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <title>Piedra, Papel o Tijera - IA</title>
     <style>
         body {
             font-family: monospace;
@@ -31,6 +32,19 @@
             height: 480px;
             display: block;
         }
+
+        .camaras-container {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+        .video-box {
+            border: 2px solid #4CAF50;
+            width: 320px;
+        }
+        .video-box video { width: 100%; display: block; transform: scaleX(-1); }
+        .controles-conexion { margin-top: 20px; background: #1e1e1e; padding: 15px; }
+
         #ui-layer { text-align: center; }
         button {
             background-color: #4CAF50;
@@ -54,8 +68,22 @@
     <div id="ui-layer">
         <h1>Piedra, Papel o Tijera</h1>
         <p id="status">Cargando modelos de IA...</p>
-        <div id="video-container">
-            <video id="webcam" autoplay playsinline></video>
+        <div class="camaras-container">
+            <div class="video-box">
+                <p>Tú</p>
+                <video id="webcam" autoplay playsinline muted></video>
+            </div>
+            
+            <div class="video-box">
+                <p>Oponente</p>
+                <video id="remote-webcam" autoplay playsinline></video>
+            </div>
+        </div>
+
+        <div class="controles-conexion">
+            <p id="mi-id" style="color: #ffeb3b;">Conectando al servidor de emparejamiento...</p>
+            <input type="text" id="input-oponente" placeholder="Pega el ID de tu amigo aquí">
+            <button id="btn-llamar">Llamar / Conectar</button>
         </div>
         <button id="btn-start" disabled>Buscar Partida</button>
         <div id="human-status">Presencia Humana: Evaluando...</div>
@@ -86,6 +114,13 @@
         let isPlaying = false;
         let isPersonPresent = false;
         let socket;
+
+        let peer;
+        let miPeerID;
+        let miStreamLocal;
+        const videoRemoto = document.getElementById('remote-webcam');
+        const textoMiId = document.getElementById('mi-id');
+        const btnLlamar = document.getElementById('btn-llamar');
 
         // 2. Inicializar ambos modelos
         async function initializeAI() {
@@ -119,15 +154,110 @@
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
             const constraints = { video: { width: 640, height: 480 } };
             try {
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                document.getElementById('webcam').srcObject = stream;
+                miStreamLocal = stream; // Guardamos el stream para enviarlo después
                 video.addEventListener("loadeddata", predictWebcam);
                 statusText.innerText = "Cámara lista.";
                 // El botón se habilitará solo si se detecta una persona
+
+                // Inicializar la conexión P2P una vez que tenemos cámara
+                iniciarPeerJS();
             } catch (err) {
                 statusText.innerText = "Error de cámara: " + err;
             }
         }
+
+        function iniciarPeerJS() {
+            // Nos conectamos al servidor gratuito de PeerJS
+            peer = new Peer(); 
+
+            // Cuando el servidor nos asigna una "matrícula" única
+            peer.on('open', (id) => {
+                miPeerID = id; // Guardamos el ID largo ("abc-123-xyz")
+                conectarWebSocket(); // Ahora que tenemos ID, conectamos al servidor Go
+            });
+
+            // CUANDO ALGUIEN NOS LLAMA A NOSOTROS:
+            peer.on('call', (llamada) => {
+                // 1. Contestamos enviando nuestra propia cámara
+                llamada.answer(miStreamLocal);
+                
+                // 2. Escuchamos para recibir el video del oponente
+                llamada.on('stream', (streamDelOponente) => {
+                    document.getElementById('remote-webcam').srcObject = streamDelOponente;
+                });
+            });
+        }
+
+        // 2. Conexión con tu backend en Go
+        function conectarWebSocket() {
+            socket = new WebSocket("ws://localhost:8080/ws");
+
+            socket.onmessage = (evento) => {
+                const mensaje = JSON.parse(evento.data);
+
+                if (mensaje.accion === "sala_creada") {
+                    // El servidor Go nos dio nuestro código corto de 5 letras
+                    document.getElementById('status').innerText = "Comparte este código: " + mensaje.valor;
+                } 
+                else if (mensaje.accion === "iniciar_llamada") {
+                    // Somos el Jugador 2, el servidor Go nos dio el ID largo del Jugador 1
+                    const idOponenteLargo = mensaje.valor;
+                    llamarOponente(idOponenteLargo);
+                }
+                else if (mensaje.accion === "estado") {
+                    document.getElementById('status').innerText = mensaje.valor;
+                    // Si el mensaje incluye "¡Haz tu gesto!", disparas la captura de MediaPipe
+                    if (mensaje.valor.includes("¡Haz tu gesto!")) {
+                        capturarYEnviarGesto();
+                    }
+                }
+                else if (mensaje.accion === "resultado") {
+                    document.getElementById('status').innerText = mensaje.valor;
+                }
+            };
+        }
+
+        // 3. Eventos de los botones de la Interfaz
+        document.getElementById('btn-crear').addEventListener('click', () => {
+            // Le decimos a Go que cree una sala y mapee nuestro PeerID largo
+            socket.send(JSON.stringify({ accion: "crear", valor: miPeerID }));
+        });
+
+        document.getElementById('btn-unirse').addEventListener('click', () => {
+            // Le mandamos a Go el código de 5 letras ("A7X9K")
+            const codigoIngresado = document.getElementById('input-sala').value.toUpperCase();
+            socket.send(JSON.stringify({ accion: "unirse", valor: codigoIngresado }));
+        });
+
+        // 4. Función de WebRTC
+        function llamarOponente(idLargo) {
+            const llamada = peer.call(idLargo, miStreamLocal);
+            llamada.on('stream', (streamDelOponente) => {
+                document.getElementById('remote-webcam').srcObject = streamDelOponente;
+            });
+        }
+
+        // 5. Enviar movimiento
+        function capturarYEnviarGesto() {
+            setTimeout(() => {
+                const gestoFinal = ultimoGestoDetectado; // De tu lógica de MediaPipe
+                socket.send(JSON.stringify({ accion: "mover", valor: gestoFinal }));
+            }, 2000); // Darles 2 segundos para posar la mano
+        }
+
+        // CUANDO NOSOTROS QUEREMOS LLAMAR A ALGUIEN:
+        btnLlamar.addEventListener('click', () => {
+            const idOponente = document.getElementById('input-oponente').value;
+            
+            // Llamamos pasando el ID que el usuario escribió y nuestro video
+            const llamada = peer.call(idOponente, miStreamLocal);
+            
+            llamada.on('stream', (streamDelOponente) => {
+                videoRemoto.srcObject = streamDelOponente;
+            });
+        });
 
         // 3. Bucle de predicción para Rostros y Gestos
         async function predictWebcam() {
@@ -181,7 +311,7 @@
             btnStart.disabled = true;
             statusText.innerText = "Conectando al servidor...";
 
-            socket = new WebSocket("ws://localhost:8080/ws");
+            socket = new WebSocket("wss://cachipun-server.fly.dev/ws");
 
             socket.onmessage = (evento) => {
                 const datos = JSON.parse(evento.data);
