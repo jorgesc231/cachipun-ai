@@ -23,9 +23,8 @@
             border: 2px solid #4CAF50;
         }
         /* Borde rojo si no hay persona */
-        #video-container.no-person {
-            border-color: #f44336; 
-        }
+        .video-box.no-person { border-color: #f44336 !important; }
+        
         video {
             transform: scaleX(-1);
             width: 640px;
@@ -128,6 +127,8 @@
         let peer;
         let miPeerID;
         let miStreamLocal;
+        // Selecciona dinámicamente la caja que envuelve tu cámara local
+        const videoContainer = document.getElementById('webcam').parentElement;
         const videoRemoto = document.getElementById('remote-webcam');
         const textoMiId = document.getElementById('mi-id');
         // 2. Inicializar ambos modelos
