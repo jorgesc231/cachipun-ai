@@ -159,6 +159,7 @@
                 </div>
         
                 <p class="etiqueta-video">Oponente</p>
+                <p id="remote-gesture" class="etiqueta-gesto">Esperando...</p>
                 <video id="remote-webcam" autoplay playsinline></video>
             </div>
         
@@ -220,6 +221,11 @@
         let peer;
         let miPeerID = null;
         let miStreamLocal = null;
+        let conexionDatos = null;
+
+        const canvasVirtual = document.createElement('canvas');
+        const contextoCanvas = canvasVirtual.getContext('2d');
+
         // Selecciona dinámicamente la caja que envuelve tu cámara local
         const videoContainer = document.getElementById('webcam').parentElement;
         const videoRemoto = document.getElementById('remote-webcam');
@@ -321,9 +327,15 @@
                     ocultarOverlayOponente(); // ¡Conexión establecida! Ocultamos el overlay
                 });
             });
+
+            // Escuchar cuando el oponente abre el canal de datos
+            peer.on('connection', (conn) => {
+                conexionDatos = conn;
+                conexionDatos.on('data', recibirDatosOponente);
+            });
         }
 
-        // 2. Conexión con tu backend en Go
+        // Conexión con tu backend en Go
         function conectarWebSocket() {
             // Avisamos que el servidor se está despertando
             document.getElementById('status').innerText = "Conectando al servidor central...";
@@ -392,6 +404,26 @@
                 document.getElementById('remote-webcam').srcObject = streamDelOponente;
                 ocultarOverlayOponente();
             });
+
+            // Conexión de datos pura
+            conexionDatos = peer.connect(idLargo);
+            conexionDatos.on('open', () => {
+                conexionDatos.on('data', recibirDatosOponente);
+            });
+        }
+
+        // Función que procesa lo que nos dice el oponente
+        function recibirDatosOponente(datos) {
+            const cajaOponente = document.getElementById('remote-webcam').parentElement;
+            
+            // Actualizamos el borde rojo si el oponente no está
+            if (!datos.presencia) {
+                cajaOponente.classList.add('no-person');
+                document.getElementById('remote-gesture').innerText = "Ausente";
+            } else {
+                cajaOponente.classList.remove('no-person');
+                document.getElementById('remote-gesture').innerText = `Gesto: ${datos.gesto}`;
+            }
         }
 
         // Oculta el protector negro con una animación suave
@@ -428,10 +460,10 @@
                 console.error("El servidor no está listo para recibir el gesto.");
             }
 
-            setTimeout(() => {
-                const gestoFinal = ultimoGestoDetectado; // De tu lógica de MediaPipe
-                socket.send(JSON.stringify({ accion: "mover", valor: gestoFinal }));
-            }, 2000); // Darles 2 segundos para posar la mano
+            //setTimeout(() => {
+                //const gestoFinal = ultimoGestoDetectado; // De tu lógica de MediaPipe
+                //socket.send(JSON.stringify({ accion: "mover", valor: gestoFinal }));
+            //}, 2000); // Darles 2 segundos para posar la mano
         }
 
         function clasificarCachipunInmune(landmarks) {
@@ -467,7 +499,7 @@
                 isPersonPresent = faceResults.detections.length > 0;
 
                 if (isPersonPresent) {
-                    humanStatus.innerText = "Humana: Detectado ✔️";
+                    humanStatus.innerText = "Humano: Detectado ✔️";
                     humanStatus.className = "";
                 } else {
                     humanStatus.innerText = "Humano: No detectado ❌";
@@ -496,6 +528,14 @@
                 }
             }
             window.requestAnimationFrame(predictWebcam);
+
+            // Le envías tus datos al oponente en tiempo real
+            if (conexionDatos && conexionDatos.open) {
+                conexionDatos.send({
+                    presencia: isPersonPresent,
+                    gesto: gestoTraducido
+                });
+            }
         }
 
         initializeAI();
