@@ -132,8 +132,8 @@
         button:disabled { background-color: #555; cursor: not-allowed; }
         h1 { margin: 0 0 10px 0; }
         #status { color: #aaaaaa; }
-        #gesture-result { font-size: 24px; font-weight: bold; color: #ffeb3b; margin-top: 10px;}
-        #human-status { font-size: 18px; font-weight: bold; color: #4CAF50; margin-top: 5px; }
+        #gesture-result { font-size: 14px; font-weight: bold; color: #ffeb3b; margin-top: 8px;}
+        #human-status { font-size: 12px; font-weight: bold; color: #4CAF50; margin-top: 5px; }
         .alert { color: #f44336 !important; }
     </style>
 </head>
@@ -148,7 +148,7 @@
             <div class="video-box oponente-box">
                 
                 <div id="overlay-conexion">
-                    <p style="margin-top: 0; font-size: 1.1em;">Código de tu Sala</p>
+                    <p style="margin-top: 0; font-size: 1.1em;">Código de tu partida</p>
                     <strong id="mi-codigo" style="color:#4CAF50; font-size: 2em; margin-bottom: 15px; font-family: monospace;">Iniciando...</strong>
                     
                     <p style="margin: 10px 0 5px 0; font-size: 0.9em; color: #aaa;">- O ÚNETE A TU OPONENTE -</p>
@@ -163,17 +163,16 @@
             </div>
         
             <div class="video-box jugador-box">
+                <p id="human-status">Humano: Evaluando...</p>
+                <div id="gesture-result">Gesto: Ninguno</div>
                 <p class="etiqueta-video">Tú</p>
                 <video id="webcam" autoplay playsinline muted></video>
             </div>
         </div>
 
-        <div id="human-status">Presencia Humana: Evaluando...</div>
-        <div id="gesture-result">Gesto: Ninguno</div>
     </div>
 
     <script type="module">
-        // 1. Importamos GestureRecognizer y FaceDetector
         import {
             GestureRecognizer,
             FaceDetector,
@@ -255,9 +254,17 @@
 
         async function enableCamera() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-            const constraints = { video: { width: 640, height: 480 } };
+            const constraints = { 
+                video: {
+                    width: { ideal: 640 },
+                    height: { ideal: 480 },
+                    facingMode: "user", // Fuerza la cámara frontal en celulares
+                    frameRate: { ideal: 30 }
+                },
+                    audio: false 
+            };
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 document.getElementById('webcam').srcObject = stream;
                 miStreamLocal = stream; // Guardamos el stream para enviarlo después
                 video.addEventListener("loadeddata", predictWebcam);
@@ -266,10 +273,31 @@
 
                 // Inicializar la conexión P2P una vez que tenemos cámara
                 iniciarPeerJS();
+                iniciarBucleDeteccion();
             } catch (err) {
                 console.error("Error de cámara:", err);
                 document.getElementById('status').innerText = "Error: Permite el acceso a la cámara.";
             }
+        }
+
+        function iniciarBucleDeteccion() {
+            const videoLocal = document.getElementById('webcam');
+            const cajaVideo = videoLocal.parentElement; // La caja que cambiaremos de color
+            
+            // Este intervalo simula la lectura continua (ajústalo según tu IA local)
+            setInterval(async () => {
+                // Aquí llamas a tu modelo de visión (FaceDetector o MediaPipe)
+                // const deteccion = await tuModeloIA.detect(videoLocal);
+                
+                // Ejemplo de lógica:
+                const hayPersona = true; // Reemplaza esto con el resultado real de tu IA
+
+                if (!hayPersona) {
+                    cajaVideo.classList.add('no-person');
+                } else {
+                    cajaVideo.classList.remove('no-person');
+                }
+            }, 500); // Revisa 2 veces por segundo para no sobrecargar el celular
         }
 
         function iniciarPeerJS() {
@@ -360,7 +388,6 @@
             socket.send(JSON.stringify({ accion: "unirse", valor: codigoIngresado }));
         });
 
-        // 4. Función de WebRTC
         function llamarOponente(idLargo) {
             const llamada = peer.call(idLargo, miStreamLocal);
             llamada.on('stream', (streamDelOponente) => {
@@ -378,15 +405,60 @@
             }, 500); // Coincide con la duración de la transición CSS
         }
 
-        // 5. Enviar movimiento
+        // Enviar movimiento
         function capturarYEnviarGesto() {
+            const videoLocal = document.getElementById('webcam');
+            
+            // Emparejar el tamaño del canvas con la resolución real de la cámara
+            canvasVirtual.width = videoLocal.videoWidth;
+            canvasVirtual.height = videoLocal.videoHeight;
+            
+            // Dibujar el fotograma actual
+            contextoCanvas.drawImage(videoLocal, 0, 0, canvasVirtual.width, canvasVirtual.height);
+            
+            // Comprimir en JPEG al 80% (excelente balance entre calidad y velocidad)
+            const imagenBase64 = canvasVirtual.toDataURL('image/jpeg', 0.8);
+            
+            // Enviar el fotograma al servidor Go para que evalúe (Piedra, Papel o Tijera)
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ 
+                    accion: "gesto", 
+                    valor: imagenBase64 
+                }));
+                console.log("📸 Gesto capturado y enviado al servidor.");
+            } else {
+                console.error("El servidor no está listo para recibir el gesto.");
+            }
+
             setTimeout(() => {
                 const gestoFinal = ultimoGestoDetectado; // De tu lógica de MediaPipe
                 socket.send(JSON.stringify({ accion: "mover", valor: gestoFinal }));
             }, 2000); // Darles 2 segundos para posar la mano
         }
 
-        // 3. Bucle de predicción para Rostros y Gestos
+        function clasificarCachipunInmune(landmarks) {
+            const calcularDistancia3D = (p1, p2) => {
+                return Math.sqrt(
+                    Math.pow(p1.x - p2.x, 2) + 
+                    Math.pow(p1.y - p2.y, 2) + 
+                    Math.pow((p1.z || 0) - (p2.z || 0), 2)
+                );
+            };
+
+            const tamanoPalma = calcularDistancia3D(landmarks[0], landmarks[9]);
+            const indiceExtendido = calcularDistancia3D(landmarks[0], landmarks[8]) > tamanoPalma * 1.5;
+            const medioExtendido = calcularDistancia3D(landmarks[0], landmarks[12]) > tamanoPalma * 1.5;
+            const anularExtendido = calcularDistancia3D(landmarks[0], landmarks[16]) > tamanoPalma * 1.5;
+            const meniqueExtendido = calcularDistancia3D(landmarks[0], landmarks[20]) > tamanoPalma * 1.3;
+
+            if (indiceExtendido && medioExtendido && !anularExtendido && !meniqueExtendido) return "Tijeras";
+            if (indiceExtendido && medioExtendido && anularExtendido) return "Papel";
+            if (!indiceExtendido && !medioExtendido && !anularExtendido) return "Piedra";
+            
+            return "Desconocido";
+        }
+
+        // Bucle de predicción para Rostros y Gestos
         async function predictWebcam() {
             if (video.currentTime !== lastVideoTime) {
                 lastVideoTime = video.currentTime;
@@ -397,10 +469,10 @@
                 isPersonPresent = faceResults.detections.length > 0;
 
                 if (isPersonPresent) {
-                    humanStatus.innerText = "Presencia Humana: Detectada ✔️";
+                    humanStatus.innerText = "Humana: Detectado ✔️";
                     humanStatus.className = "";
                 } else {
-                    humanStatus.innerText = "Presencia Humana: No detectada ❌";
+                    humanStatus.innerText = "Humano: No detectado ❌";
                     humanStatus.className = "alert";
                 }
 
@@ -409,19 +481,20 @@
                 if (isPersonPresent) {
                     const gestureResults = gestureRecognizer.recognizeForVideo(video, now);
 
-                    if (gestureResults.gestures.length > 0) {
-                        const categoryName = gestureResults.gestures[0][0].categoryName;
-                        let gestoTraducido = "Desconocido";
-                        if (categoryName === "Closed_Fist") gestoTraducido = "Piedra";
-                        if (categoryName === "Open_Palm") gestoTraducido = "Papel";
-                        if (categoryName === "Victory") gestoTraducido = "Tijeras";
+                    // Verificamos si la IA encontró los puntos clave (landmarks) de alguna mano
+                    if (gestureResults.landmarks && gestureResults.landmarks.length > 0) {
+
+                        // Tomamos los 21 puntos 3D de la primera mano detectada
+                        const puntosMano = gestureResults.landmarks[0];
+
+                        const gestoTraducido = clasificarCachipunInmune(puntosMano);
 
                         gestureResult.innerText = `Gesto: ${gestoTraducido}`;
                     } else {
                         gestureResult.innerText = "Gesto: Ninguna mano";
                     }
                 } else {
-                    gestureResult.innerText = "Gesto: Pausado (No hay humano)";
+                    gestureResult.innerText = "";
                 }
             }
             window.requestAnimationFrame(predictWebcam);
