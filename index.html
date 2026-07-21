@@ -488,6 +488,8 @@
             return "Desconocido";
         }
 
+        let gestoTraducido = "Nada";
+
         // Bucle de predicción para Rostros y Gestos
         async function predictWebcam() {
             if (video.currentTime !== lastVideoTime) {
@@ -517,25 +519,31 @@
                         // Tomamos los 21 puntos 3D de la primera mano detectada
                         const puntosMano = gestureResults.landmarks[0];
 
-                        const gestoTraducido = clasificarCachipunInmune(puntosMano);
+                        gestoTraducido = clasificarCachipunInmune(puntosMano);
 
                         gestureResult.innerText = `Gesto: ${gestoTraducido}`;
                     } else {
                         gestureResult.innerText = "Gesto: Ninguna mano";
                     }
+
                 } else {
                     gestureResult.innerText = "";
                 }
             }
-            window.requestAnimationFrame(predictWebcam);
-
+            
             // Le envías tus datos al oponente en tiempo real
-            if (conexionDatos && conexionDatos.open) {
-                conexionDatos.send({
-                    presencia: isPersonPresent,
-                    gesto: gestoTraducido
-                });
+            if (conexionDatos) {
+                try {
+                    conexionDatos.send({
+                        presencia: isPersonPresent,
+                        gesto: gestoTraducido
+                    });
+                } catch (error) {
+                    // Si falla por una fracción de segundo mientras conecta, no rompe el juego
+                }
             }
+
+            window.requestAnimationFrame(predictWebcam);
         }
 
         initializeAI();
